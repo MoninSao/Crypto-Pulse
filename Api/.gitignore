@@ -1,0 +1,9 @@
+# Env
+.env
+
+# Dotnet
+**/bin/
+**/obj/
+*.user
+*.suo
+
