@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getPortfolio } from "./api";
 import type { PortfolioView } from "./types";
 import AddHoldingForm from "./AddHoldingForm";
-import HoldingsTable from "./HoldingsTable";
+import HoldingTable from "./HoldingTable";
 import "./App.css";
 
 const usd = (n: number) =>
@@ -47,7 +47,7 @@ export default function App() {
         {loading ? (
           <p className="muted">Loading…</p>
         ) : (
-          <HoldingsTable holdings={data?.holdings ?? []} onChanged={load} />
+          <HoldingTable holdings={data?.holdings ?? []} onChanged={load} />
         )}
       </section>
     </div>
