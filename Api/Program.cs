@@ -1,6 +1,18 @@
 using Npgsql;
+using DotNetEnv;
+
+// Load environment variables from .env file
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Get the connection string template and substitute environment variables
+var connectionStringTemplate = builder.Configuration.GetConnectionString("DefaultConnection");
+var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "[YOUR-PASSWORD]";
+var connectionString = connectionStringTemplate?.Replace("{db_password}", dbPassword);
+
+// Update the connection string with the actual password
+builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
