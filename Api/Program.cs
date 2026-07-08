@@ -2,13 +2,19 @@ using CryptoPulse.Api.Data;
 using CryptoPulse.Api.Dtos;
 using CryptoPulse.Api.Models;
 using CryptoPulse.Api.Services;
+using DotNetEnv;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+Env.Load();  // reads api/.env into environment variables
+
 // --- Services ---
+var conn = builder.Configuration.GetConnectionString("Default")!
+    .Replace("__DB_PASSWORD__", Environment.GetEnvironmentVariable("DB_PASSWORD"));
+
 builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    opt.UseNpgsql(conn));
 
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<CoinGeckoService>();
