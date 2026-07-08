@@ -23,22 +23,33 @@ public class CoinGeckoService
     public async Task<List<CoinSearchResult>> SearchAsync(string query)
     {
         var url = $"{Base}/search?query={Uri.EscapeDataString(query)}";
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
-
-        var results = new List<CoinSearchResult>();
-        if (doc.RootElement.TryGetProperty("coins", out var coins))
+        Console.WriteLine($"[CoinGecko] Searching for: {query}");
+        try
         {
-            foreach (var c in coins.EnumerateArray())
+            using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
+
+            var results = new List<CoinSearchResult>();
+            if (doc.RootElement.TryGetProperty("coins", out var coins))
             {
-                results.Add(new CoinSearchResult(
-                    c.GetProperty("id").GetString() ?? "",
-                    (c.GetProperty("symbol").GetString() ?? "").ToUpper(),
-                    c.GetProperty("name").GetString() ?? "",
-                    c.TryGetProperty("thumb", out var t) ? t.GetString() : null
-                ));
+                foreach (var c in coins.EnumerateArray())
+                {
+                    results.Add(new CoinSearchResult(
+                        c.GetProperty("id").GetString() ?? "",
+                        (c.GetProperty("symbol").GetString() ?? "").ToUpper(),
+                        c.GetProperty("name").GetString() ?? "",
+                        c.TryGetProperty("thumb", out var t) ? t.GetString() : null
+                    ));
+                }
             }
+            var finalResults = results.Take(10).ToList();
+            Console.WriteLine($"[CoinGecko] Found {finalResults.Count} results for '{query}'");
+            return finalResults;
         }
-        return results.Take(10).ToList();
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CoinGecko] Error searching '{query}': {ex.Message}");
+            throw;
+        }
     }
 
     // GET /simple/price?ids=bitcoin,ethereum&vs_currencies=usd  (batched + cached)
@@ -49,19 +60,32 @@ public class CoinGeckoService
 
         var cacheKey = "prices:" + string.Join(",", ids);
         if (_cache.TryGetValue(cacheKey, out Dictionary<string, decimal>? cached) && cached is not null)
-            return cached;
-
-        var url = $"{Base}/simple/price?ids={string.Join(",", ids)}&vs_currencies=usd";
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
-
-        var prices = new Dictionary<string, decimal>();
-        foreach (var coin in doc.RootElement.EnumerateObject())
         {
-            if (coin.Value.TryGetProperty("usd", out var usd))
-                prices[coin.Name] = usd.GetDecimal();
+            Console.WriteLine($"[CoinGecko] Cache HIT for {ids.Count} coins");
+            return cached;
         }
 
-        _cache.Set(cacheKey, prices, TimeSpan.FromSeconds(60));
-        return prices;
+        Console.WriteLine($"[CoinGecko] Fetching prices for: {string.Join(", ", ids)}");
+        try
+        {
+            var url = $"{Base}/simple/price?ids={string.Join(",", ids)}&vs_currencies=usd";
+            using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
+
+            var prices = new Dictionary<string, decimal>();
+            foreach (var coin in doc.RootElement.EnumerateObject())
+            {
+                if (coin.Value.TryGetProperty("usd", out var usd))
+                    prices[coin.Name] = usd.GetDecimal();
+            }
+
+            Console.WriteLine($"[CoinGecko] Fetched prices for {prices.Count} coins, caching for 60s");
+            _cache.Set(cacheKey, prices, TimeSpan.FromSeconds(60));
+            return prices;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CoinGecko] Error fetching prices: {ex.Message}");
+            throw;
+        }
     }
 }

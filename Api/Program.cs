@@ -39,15 +39,21 @@ app.UseCors("frontend");
 // 1. Search coins (proxies CoinGecko)
 app.MapGet("/api/coins/search", async (string q, CoinGeckoService gecko) =>
 {
+    Console.WriteLine($"[API] GET /api/coins/search - query: {q}");
     if (string.IsNullOrWhiteSpace(q)) return Results.Ok(new List<CoinSearchResult>());
-    return Results.Ok(await gecko.SearchAsync(q));
+    var result = await gecko.SearchAsync(q);
+    Console.WriteLine($"[API] Search returned {result.Count} results");
+    return Results.Ok(result);
 });
 
 // 2. List holdings enriched with live price + value + total
 app.MapGet("/api/holdings", async (AppDbContext db, CoinGeckoService gecko) =>
 {
+    Console.WriteLine("[API] GET /api/holdings");
     var holdings = await db.Holdings.OrderByDescending(h => h.CreatedAt).ToListAsync();
+    Console.WriteLine($"[API] Loaded {holdings.Count} holdings from database");
     var prices = await gecko.GetPricesAsync(holdings.Select(h => h.CoinId));
+    Console.WriteLine($"[API] Fetched prices for {prices.Count} coins");
 
     var views = holdings.Select(h =>
     {
@@ -56,12 +62,14 @@ app.MapGet("/api/holdings", async (AppDbContext db, CoinGeckoService gecko) =>
     }).ToList();
 
     var total = views.Sum(v => v.CurrentValue);
+    Console.WriteLine($"[API] Portfolio total value: ${total}");
     return Results.Ok(new PortfolioView(views, total));
 });
 
 // 3. Add a holding
 app.MapPost("/api/holdings", async (HoldingInput input, AppDbContext db) =>
 {
+    Console.WriteLine($"[API] POST /api/holdings - coinId: {input.CoinId}, symbol: {input.Symbol}, quantity: {input.Quantity}");
     if (input.Quantity <= 0) return Results.BadRequest("Quantity must be positive.");
 
     var holding = new Holding
@@ -73,16 +81,23 @@ app.MapPost("/api/holdings", async (HoldingInput input, AppDbContext db) =>
     };
     db.Holdings.Add(holding);
     await db.SaveChangesAsync();
+    Console.WriteLine($"[API] Holding created with ID: {holding.Id}");
     return Results.Created($"/api/holdings/{holding.Id}", holding);
 });
 
 // 4. Delete a holding
 app.MapDelete("/api/holdings/{id:long}", async (long id, AppDbContext db) =>
 {
+    Console.WriteLine($"[API] DELETE /api/holdings/{id}");
     var holding = await db.Holdings.FindAsync(id);
-    if (holding is null) return Results.NotFound();
+    if (holding is null)
+    {
+        Console.WriteLine($"[API] Holding {id} not found");
+        return Results.NotFound();
+    }
     db.Holdings.Remove(holding);
     await db.SaveChangesAsync();
+    Console.WriteLine($"[API] Holding {id} deleted");
     return Results.NoContent();
 });
 
