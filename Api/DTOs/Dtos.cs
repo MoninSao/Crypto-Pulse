@@ -1,4 +1,4 @@
-namespace CryptoTracker.Api.Dtos;
+namespace CryptoPulse.Api.Dtos;
 
 // Incoming body for POST /api/holdings
 public record HoldingInput(string CoinId, string Symbol, decimal Quantity);
