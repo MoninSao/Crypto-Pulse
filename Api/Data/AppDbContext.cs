@@ -1,7 +1,7 @@
 using CryptoPulse.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace CryptoTracker.Api.Data;
+namespace CryptoPulse.Api.Data;
 
 public class AppDbContext : DbContext
 {

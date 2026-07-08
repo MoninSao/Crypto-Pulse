@@ -16,7 +16,7 @@ public class CoinGeckoService
         _cache = cache;
         // CoinGecko requires a User-Agent or it may 403
         if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
-            _http.DefaultRequestHeaders.Add("User-Agent", "CryptoTracker/1.0");
+            _http.DefaultRequestHeaders.Add("User-Agent", "CryptoPulse/1.0");
     }
 
     // GET /search?query=eth

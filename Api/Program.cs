@@ -1,86 +1,83 @@
-using Npgsql;
-using DotNetEnv;
-
-// Load environment variables from .env file
-Env.Load();
+using CryptoPulse.Api.Data;
+using CryptoPulse.Api.Dtos;
+using CryptoPulse.Api.Models;
+using CryptoPulse.Api.Services;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Get the connection string template and substitute environment variables
-var connectionStringTemplate = builder.Configuration.GetConnectionString("DefaultConnection");
-var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "[YOUR-PASSWORD]";
-var connectionString = connectionStringTemplate?.Replace("{db_password}", dbPassword);
+// --- Services ---
+builder.Services.AddDbContext<AppDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-// Update the connection string with the actual password
-builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<CoinGeckoService>();
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Allow the Vite dev server to call us
+builder.Services.AddCors(o => o.AddPolicy("frontend", p => p
+    .WithOrigins("http://localhost:5173")
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI();
+app.UseCors("frontend");
+
+// --- Endpoints ---
+
+// 1. Search coins (proxies CoinGecko)
+app.MapGet("/api/coins/search", async (string q, CoinGeckoService gecko) =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    if (string.IsNullOrWhiteSpace(q)) return Results.Ok(new List<CoinSearchResult>());
+    return Results.Ok(await gecko.SearchAsync(q));
+});
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
+// 2. List holdings enriched with live price + value + total
+app.MapGet("/api/holdings", async (AppDbContext db, CoinGeckoService gecko) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    var holdings = await db.Holdings.OrderByDescending(h => h.CreatedAt).ToListAsync();
+    var prices = await gecko.GetPricesAsync(holdings.Select(h => h.CoinId));
 
-app.MapGet("/health", HealthCheck)
-.WithName("HealthCheck")
-.WithOpenApi();
+    var views = holdings.Select(h =>
+    {
+        var price = prices.TryGetValue(h.CoinId, out var p) ? p : 0m;
+        return new HoldingView(h.Id, h.CoinId, h.Symbol, h.Quantity, price, price * h.Quantity);
+    }).ToList();
 
-app.MapGet("/weatherforecast", () =>
+    var total = views.Sum(v => v.CurrentValue);
+    return Results.Ok(new PortfolioView(views, total));
+});
+
+// 3. Add a holding
+app.MapPost("/api/holdings", async (HoldingInput input, AppDbContext db) =>
 {
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    if (input.Quantity <= 0) return Results.BadRequest("Quantity must be positive.");
+
+    var holding = new Holding
+    {
+        CoinId = input.CoinId,
+        Symbol = input.Symbol,
+        Quantity = input.Quantity,
+        CreatedAt = DateTime.UtcNow
+    };
+    db.Holdings.Add(holding);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/holdings/{holding.Id}", holding);
+});
+
+// 4. Delete a holding
+app.MapDelete("/api/holdings/{id:long}", async (long id, AppDbContext db) =>
+{
+    var holding = await db.Holdings.FindAsync(id);
+    if (holding is null) return Results.NotFound();
+    db.Holdings.Remove(holding);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
 
 app.Run();
-
-async Task<IResult> HealthCheck(IConfiguration config)
-{
-    try
-    {
-        var connectionString = config.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrEmpty(connectionString))
-        {
-            return Results.BadRequest(new { status = "unhealthy", error = "Connection string not configured", timestamp = DateTime.UtcNow });
-        }
-
-        await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync();
-
-        return Results.Ok(new { status = "healthy", database = "connected", timestamp = DateTime.UtcNow });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(
-            new { status = "unhealthy", error = ex.Message, timestamp = DateTime.UtcNow },
-            statusCode: 503
-        );
-    }
-}
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
