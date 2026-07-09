@@ -9,6 +9,9 @@ public class CoinGeckoService
     private readonly HttpClient _http;
     private readonly IMemoryCache _cache;
     private const string Base = "https://api.coingecko.com/api/v3";
+    private static int _apiCallCount = 0;
+
+    public static int ApiCallCount => _apiCallCount;
 
     public CoinGeckoService(HttpClient http, IMemoryCache cache)
     {
@@ -69,6 +72,7 @@ public class CoinGeckoService
         try
         {
             var url = $"{Base}/simple/price?ids={string.Join(",", ids)}&vs_currencies=usd";
+            System.Threading.Interlocked.Increment(ref _apiCallCount);
             using var doc = JsonDocument.Parse(await _http.GetStringAsync(url));
 
             var prices = new Dictionary<string, decimal>();
