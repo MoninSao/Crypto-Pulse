@@ -1,0 +1,15 @@
+**/.classpath
+**/.dockerignore
+**/.env
+**/.git
+**/.gitignore
+**/.project
+**/.settings
+**/.toolstartsettings.json
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/node_modules
+**/__pycache__
+**/.pytest_cache
