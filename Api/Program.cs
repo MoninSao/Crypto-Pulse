@@ -19,6 +19,11 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<CoinGeckoService>();
 
+// Add SignalR for real-time price updates
+builder.Services.AddSignalR();
+builder.Services.AddScoped<CryptoPulse.Api.Services.PortfolioService>();
+builder.Services.AddHostedService<CryptoPulse.Api.Services.PriceBroadcastService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -26,13 +31,17 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(o => o.AddPolicy("frontend", p => p
     .WithOrigins("http://localhost:5173")
     .AllowAnyHeader()
-    .AllowAnyMethod()));
+    .AllowAnyMethod()
+    .AllowCredentials()));  // Required for SignalR handshake
 
 var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
+
+// Map SignalR hub for price updates
+app.MapHub<CryptoPulse.Api.Hubs.PriceHub>("/hubs/prices");
 
 // --- Endpoints ---
 
@@ -47,23 +56,11 @@ app.MapGet("/api/coins/search", async (string q, CoinGeckoService gecko) =>
 });
 
 // 2. List holdings enriched with live price + value + total
-app.MapGet("/api/holdings", async (AppDbContext db, CoinGeckoService gecko) =>
+app.MapGet("/api/holdings", async (CryptoPulse.Api.Services.PortfolioService portfolio) =>
 {
     Console.WriteLine("[API] GET /api/holdings");
-    var holdings = await db.Holdings.OrderByDescending(h => h.CreatedAt).ToListAsync();
-    Console.WriteLine($"[API] Loaded {holdings.Count} holdings from database");
-    var prices = await gecko.GetPricesAsync(holdings.Select(h => h.CoinId));
-    Console.WriteLine($"[API] Fetched prices for {prices.Count} coins");
-
-    var views = holdings.Select(h =>
-    {
-        var price = prices.TryGetValue(h.CoinId, out var p) ? p : 0m;
-        return new HoldingView(h.Id, h.CoinId, h.Symbol, h.Quantity, price, price * h.Quantity);
-    }).ToList();
-
-    var total = views.Sum(v => v.CurrentValue);
-    Console.WriteLine($"[API] Portfolio total value: ${total}");
-    return Results.Ok(new PortfolioView(views, total));
+    var view = await portfolio.BuildAsync();
+    return Results.Ok(view);
 });
 
 // 3. Add a holding
@@ -100,5 +97,10 @@ app.MapDelete("/api/holdings/{id:long}", async (long id, AppDbContext db) =>
     Console.WriteLine($"[API] Holding {id} deleted");
     return Results.NoContent();
 });
+
+// 5. Debug endpoint for measuring API call reduction
+app.MapGet("/api/debug/stats", () =>
+    Results.Ok(new { CoinGeckoApiCallCount = CoinGeckoService.ApiCallCount })
+);
 
 app.Run();
