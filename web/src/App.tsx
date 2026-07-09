@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import * as signalR from "@microsoft/signalr";
 import { getPortfolio } from "./api";
 import type { PortfolioView } from "./types";
 import AddHoldingForm from "./AddHoldingForm";
@@ -26,6 +27,28 @@ export default function App() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // SignalR: real-time price updates
+  useEffect(() => {
+    const conn = new signalR.HubConnectionBuilder()
+      .withUrl(`${import.meta.env.VITE_API_BASE}/hubs/prices`)
+      .withAutomaticReconnect()
+      .build();
+
+    conn.on("portfolioUpdate", (view: PortfolioView) => {
+      console.log("[SignalR] Portfolio update received", view);
+      setData(view);
+    });
+
+    conn
+      .start()
+      .then(() => console.log("[SignalR] Connected"))
+      .catch((e) => console.error("[SignalR] connection failed", e));
+
+    return () => {
+      conn.stop();
+    };
+  }, []);
 
   return (
     <div className="container">
